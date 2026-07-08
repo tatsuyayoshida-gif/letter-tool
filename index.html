@@ -112,6 +112,20 @@
   }
   #docList button:hover { color: #dc2626; }
   #docEmpty { font-size: 11px; color: #999; margin-top: 8px; }
+  input[type=file] {
+    width: 100%;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+  #reportStatus {
+    font-size: 11px;
+    margin-top: 6px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  #reportStatus.ok { color: #15803d; }
+  #reportStatus.err { color: #dc2626; }
+  #reportStatus.busy { color: #666; }
   #stage {
     flex: 1;
     overflow: auto;
@@ -176,6 +190,13 @@
   </fieldset>
 
   <fieldset>
+    <legend>診断レポートPDFから導入文を自動作成</legend>
+    <label>secondz digitalのAI検索可視性 簡易診断レポート(PDF)をアップロード</label>
+    <input type="file" id="reportPdf" accept="application/pdf">
+    <div id="reportStatus"></div>
+  </fieldset>
+
+  <fieldset>
     <legend>本文フック（電話の内容に合わせて調整）</legend>
 
     <label>電話対応シーンから選ぶ（文面を自動セット・その後も編集可）</label>
@@ -224,6 +245,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script>
 function esc(s) {
   return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -287,6 +309,117 @@ function initTemplateSelectors() {
       const dept = document.getElementById('toDept').value || "ご担当部署";
       document.getElementById('hookLine').value = t.text(staff, dept);
       render();
+    }
+  });
+}
+
+// ---- 診断レポートPDFから導入文を自動作成 ----
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+
+async function extractPdfText(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let fullText = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    fullText += content.items.map(it => it.str).join("\n") + "\n\n";
+  }
+  return fullText;
+}
+
+function firstMatch(re, text) {
+  const m = text.match(re);
+  return m ? m[1].trim() : null;
+}
+
+function allMatches(re, text) {
+  return [...text.matchAll(re)].map(m => m[1].trim());
+}
+
+function parseReportText(text) {
+  const norm = text.replace(/[（(]/g, "（").replace(/[）)]/g, "）").replace(/[％]/g, "%");
+
+  const company = firstMatch(/([^\n]{1,40}?)\s*御中/, norm);
+  const industry = firstMatch(/「(.+?)」\s*の\s*AI\s*検索事情/, norm);
+  const brand = firstMatch(/([一-龠ぁ-んァ-ヶー0-9A-Za-z]{1,12}?)が出現/, norm);
+
+  const appearancePct = allMatches(/貴社\s*\n?\s*(\d+)\s*%/g, norm);
+  const competitorAvgPct = allMatches(/競合平均\s*\n?\s*(\d+)\s*%/g, norm);
+
+  let competitors = firstMatch(/競合他社\s*\n?([\s\S]{0,200}?)\n\s*重視するポイント/, norm);
+  if (competitors) {
+    competitors = competitors.split(/[、,]/).map(s => s.trim()).filter(Boolean).slice(0, 3).join("・");
+  }
+
+  return {
+    company,
+    industry,
+    brand,
+    appearanceMine: appearancePct[0] || null,
+    appearanceCompAvg: competitorAvgPct[0] || null,
+    officialUrlMine: appearancePct[1] || null,
+    officialUrlCompAvg: competitorAvgPct[1] || null,
+    competitors,
+  };
+}
+
+function buildIndustryParagraphFromReport(d) {
+  const industry = d.industry || "貴社の業界";
+  const brand = d.brand || d.company || "貴社";
+  const hasStats = d.appearanceMine && d.appearanceCompAvg;
+
+  if (!hasStats) {
+    return `実際に弊社で${industry}におけるAI検索の実態を調査したところ、貴社の可視性・引用のされ方に競合との明確な差が見られました。ChatGPTなどの生成AIが情報収集の入り口として急速に普及する中、貴社が"AIにどう認識され、どう説明されているか"が、そのまま商談機会の増減に直結する時代になりつつあります。`;
+  }
+
+  let sentence = `実際に弊社で${industry}におけるAI検索の実態を調査したところ、貴社「${brand}」はChatGPT検索において出現率${d.appearanceMine}%`;
+  if (d.officialUrlMine) sentence += `・公式サイト引用率${d.officialUrlMine}%`;
+  sentence += `と、競合平均(出現率${d.appearanceCompAvg}%`;
+  if (d.officialUrlCompAvg) sentence += `・引用率${d.officialUrlCompAvg}%`;
+  sentence += `)を大きく上回る結果が出ています。`;
+  if (d.competitors) {
+    sentence += `${d.competitors}などの競合と比較しても高い可視性を維持されていますが、`;
+  } else {
+    sentence += `一方で、`;
+  }
+  sentence += `トピックによってはAIがどの情報源を根拠に回答を組み立てているかにばらつきがあり、この差が今後の商談機会・ブランド想起に直結してまいります。`;
+  return sentence;
+}
+
+function initReportUpload() {
+  const input = document.getElementById('reportPdf');
+  const status = document.getElementById('reportStatus');
+  if (!input) return;
+
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    status.className = 'busy';
+    status.textContent = '解析中…';
+
+    try {
+      if (typeof pdfjsLib === 'undefined') throw new Error('PDF読み込みライブラリが利用できません（ネット接続を確認してください）');
+      const text = await extractPdfText(file);
+      const data = parseReportText(text);
+
+      if (data.company) document.getElementById('toCompany').value = data.company;
+      document.getElementById('industryLine').value = buildIndustryParagraphFromReport(data);
+      render();
+
+      const found = Object.entries(data).filter(([, v]) => v).map(([k]) => k);
+      if (found.length === 0) {
+        status.className = 'err';
+        status.textContent = 'レポートから数値を抽出できませんでした。手動で導入文を編集してください。';
+      } else {
+        status.className = 'ok';
+        status.textContent = `抽出結果：会社名=${data.company || '?'} / 業界=${data.industry || '?'} / ブランド=${data.brand || '?'} / 出現率=${data.appearanceMine || '?'}% (競合平均${data.appearanceCompAvg || '?'}%) / 公式URL出現率=${data.officialUrlMine || '?'}% (競合平均${data.officialUrlCompAvg || '?'}%)\n内容を確認し、必要なら下の欄を手動で調整してください。`;
+      }
+    } catch (e) {
+      status.className = 'err';
+      status.textContent = '読み込みに失敗しました：' + e.message;
     }
   });
 }
@@ -557,6 +690,7 @@ document.querySelectorAll('input, textarea').forEach(el => {
   el.addEventListener('input', render);
 });
 initTemplateSelectors();
+initReportUpload();
 renderDocList();
 render();
 </script>
