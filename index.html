@@ -57,19 +57,59 @@
     font-family: inherit;
   }
   textarea { resize: vertical; }
-  #printBtn {
+  select {
     width: 100%;
-    padding: 10px;
-    background: #2563eb;
-    color: #fff;
+    font-size: 12px;
+    padding: 5px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-top: 3px;
+    background: #fafafa;
+  }
+  .btn {
+    width: 100%;
+    padding: 9px;
     border: none;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: bold;
     cursor: pointer;
     margin-top: 8px;
   }
+  #printBtn { background: #2563eb; color: #fff; }
   #printBtn:hover { background: #1d4ed8; }
+  #saveBtn { background: #16a34a; color: #fff; }
+  #saveBtn:hover { background: #15803d; }
+  #clearBtn { background: #e5e7eb; color: #333; }
+  #clearBtn:hover { background: #d1d5db; }
+  #docList {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  #docList li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 4px;
+    border-bottom: 1px solid #eee;
+    font-size: 12px;
+  }
+  #docList .docInfo { flex: 1; overflow: hidden; cursor: pointer; }
+  #docList .docTitle { font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #docList .docDate { color: #888; font-size: 10px; }
+  #docList button {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 12px;
+    color: #999;
+  }
+  #docList button:hover { color: #dc2626; }
+  #docEmpty { font-size: 11px; color: #999; margin-top: 8px; }
   #stage {
     flex: 1;
     overflow: auto;
@@ -114,6 +154,12 @@
   <p class="desc">左のフォームに入力すると、右側にビジネス文書の体裁で手紙のプレビューが表示されます。「印刷する」を押すとブラウザの印刷画面が開くので、そのままA4で印刷できます。</p>
 
   <fieldset>
+    <legend>保存済みの手紙（このブラウザ内のみ）</legend>
+    <ul id="docList"></ul>
+    <div id="docEmpty">まだ保存された手紙はありません</div>
+  </fieldset>
+
+  <fieldset>
     <legend>宛先</legend>
     <label>宛先会社名</label>
     <input type="text" id="toCompany" value="株式会社日本製鋼所">
@@ -128,8 +174,14 @@
 
   <fieldset>
     <legend>本文フック（電話の内容に合わせて調整）</legend>
+
+    <label>電話対応シーンから選ぶ（文面を自動セット・その後も編集可）</label>
+    <select id="sceneSelect"></select>
     <label>先日の電話で対応した担当者・部署への一言</label>
     <textarea id="hookLine" rows="2">先日、弊社担当の吉田より貴社フォトメックス事業室様へお電話にてご連絡させていただきましたところ、資料をご覧いただけるとのことでしたので、改めて書中にてご案内申し上げます。</textarea>
+
+    <label>業界から選ぶ（文面を自動セット・その後も編集可）</label>
+    <select id="industrySelect"></select>
     <label>業界・製品を絡めた導入文（AI検索の重要性）</label>
     <textarea id="industryLine" rows="4">近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、お取引先様や新規のお客様が「レーザー加工機」「光学部品」といった専門分野の製品情報を調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社製品が"AIにどう認識され、どう説明されているか"が、そのまま商談機会の増減に直結する時代になりつつあります。</textarea>
   </fieldset>
@@ -158,7 +210,9 @@
     <input type="text" id="dateLine" value="2026年7月吉日">
   </fieldset>
 
-  <button id="printBtn" onclick="window.print()">印刷する</button>
+  <button id="saveBtn" class="btn" onclick="saveCurrentLetter()">この内容を保存する</button>
+  <button id="printBtn" class="btn" onclick="window.print()">印刷する</button>
+  <button id="clearBtn" class="btn" onclick="clearForm()">新規作成（フォームをクリア）</button>
 </div>
 
 <div id="stage">
@@ -171,6 +225,150 @@ function esc(s) {
 }
 function nl2br(s) {
   return esc(s).split("\n").map(x => x.trim()).filter(Boolean).join("<br>");
+}
+
+// ---- テンプレート（業界別・電話対応シーン別） ----
+const INDUSTRY_TEMPLATES = {
+  precision: { label: "精密機械・製造業",
+    text: `近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、お取引先様や新規のお客様が「レーザー加工機」「光学部品」といった専門分野の製品情報を調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社製品が"AIにどう認識され、どう説明されているか"が、そのまま商談機会の増減に直結する時代になりつつあります。` },
+  chemical: { label: "化学・素材メーカー",
+    text: `近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、研究開発・調達のご担当者様が機能性材料や特殊素材を調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社製品が"AIにどう認識され、どう説明されているか"が、そのまま新規引き合いの増減に直結する時代になりつつあります。` },
+  trading: { label: "商社・卸売",
+    text: `近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、お取引先様や新規のお客様が取扱商材やサプライヤーを調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社が"AIにどう認識され、どう紹介されているか"が、そのまま商談機会の増減に直結する時代になりつつあります。` },
+  medical: { label: "医療機器メーカー",
+    text: `近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、医療機関・購買部門のご担当者様が医療機器や関連製品を調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社製品が"AIにどう認識され、どう説明されているか"が、そのまま採用検討の増減に直結する時代になりつつあります。` },
+  it: { label: "ITシステム・ソフトウェア",
+    text: `近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、導入検討のご担当者様がシステムやサービスを比較検討する際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社サービスが"AIにどう認識され、どう説明されているか"が、そのまま商談機会の増減に直結する時代になりつつあります。` },
+  construction: { label: "建設・不動産",
+    text: `近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、発注者様やパートナー企業様が施工実績や技術力を調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社が"AIにどう認識され、どう紹介されているか"が、そのまま案件獲得の増減に直結する時代になりつつあります。` },
+  food: { label: "食品・消費財メーカー",
+    text: `近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、バイヤー様やお客様が商品情報やブランドを調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社商品が"AIにどう認識され、どう紹介されているか"が、そのまま販売機会の増減に直結する時代になりつつあります。` },
+};
+
+const SCENE_TEMPLATES = {
+  mailOk: { label: "担当者不在・郵送OKをもらった",
+    text: (staff, dept) => `先日、弊社担当の${staff}より貴社${dept}様へお電話にてご連絡させていただきましたところ、資料をご覧いただけるとのことでしたので、改めて書中にてご案内申し上げます。` },
+  declined: { label: "電話では今回見送りと言われた",
+    text: (staff, dept) => `先日、弊社担当の${staff}より貴社${dept}様へお電話にてご連絡させていただきました。その際は貴重なお時間をいただきありがとうございました。今後の情報提供として、改めて書中にてご案内申し上げます。` },
+  noResponse: { label: "反応が薄かった・参考情報として送る",
+    text: (staff, dept) => `先日、弊社担当の${staff}より貴社${dept}様へお電話にてご連絡させていただきました。ご不明な点も多かったかと存じますので、参考情報として改めて書中にてご案内申し上げます。` },
+  coldNoCall: { label: "電話なし・初回アプローチ",
+    text: (staff, dept) => `突然のお手紙にて失礼いたします。貴社${dept}様の取り組みを拝見し、ぜひ一度ご案内差し上げたく、書中にてご連絡申し上げます。` },
+};
+
+function populateSelect(selectEl, dict, placeholder) {
+  selectEl.innerHTML = `<option value="">${placeholder}</option>` +
+    Object.entries(dict).map(([key, v]) => `<option value="${key}">${esc(v.label)}</option>`).join("");
+}
+
+function initTemplateSelectors() {
+  const industrySel = document.getElementById('industrySelect');
+  const sceneSel = document.getElementById('sceneSelect');
+  populateSelect(industrySel, INDUSTRY_TEMPLATES, "-- 業界テンプレートを選択 --");
+  populateSelect(sceneSel, SCENE_TEMPLATES, "-- シーンテンプレートを選択 --");
+
+  industrySel.addEventListener('change', () => {
+    const t = INDUSTRY_TEMPLATES[industrySel.value];
+    if (t) {
+      document.getElementById('industryLine').value = t.text;
+      render();
+    }
+  });
+
+  sceneSel.addEventListener('change', () => {
+    const t = SCENE_TEMPLATES[sceneSel.value];
+    if (t) {
+      const staff = document.getElementById('staffName').value || "担当者";
+      const dept = document.getElementById('toDept').value || "ご担当部署";
+      document.getElementById('hookLine').value = t.text(staff, dept);
+      render();
+    }
+  });
+}
+
+// ---- 保存済みドキュメント（localStorage） ----
+const STORAGE_KEY = 'letterDocs';
+const FIELD_IDS = ['toCompany','toDept','toZip','toAddr','hookLine','industryLine',
+  'fromCompany','fromRep','fromZip','fromAddr','fromTel','staffName','staffMail','dateLine'];
+
+function loadDocs() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveDocs(docs) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(docs));
+}
+
+function saveCurrentLetter() {
+  const v = id => document.getElementById(id).value;
+  const defaultTitle = `${v('toCompany')} ${v('toDept')}`.trim();
+  const title = window.prompt("この手紙のタイトルを入力してください", defaultTitle);
+  if (title === null) return; // キャンセル
+
+  const fields = {};
+  FIELD_IDS.forEach(id => fields[id] = v(id));
+
+  const docs = loadDocs();
+  docs.unshift({
+    id: Date.now().toString(36),
+    title: title || defaultTitle || "無題の手紙",
+    savedAt: new Date().toLocaleString('ja-JP'),
+    fields,
+  });
+  saveDocs(docs);
+  renderDocList();
+  alert("保存しました（このブラウザ内に保存されています）");
+}
+
+function openDoc(id) {
+  const docs = loadDocs();
+  const doc = docs.find(d => d.id === id);
+  if (!doc) return;
+  FIELD_IDS.forEach(fid => {
+    if (fid in doc.fields) document.getElementById(fid).value = doc.fields[fid];
+  });
+  render();
+}
+
+function deleteDoc(id, ev) {
+  ev.stopPropagation();
+  if (!confirm("この手紙を削除しますか？")) return;
+  const docs = loadDocs().filter(d => d.id !== id);
+  saveDocs(docs);
+  renderDocList();
+}
+
+function renderDocList() {
+  const docs = loadDocs();
+  const listEl = document.getElementById('docList');
+  const emptyEl = document.getElementById('docEmpty');
+  if (docs.length === 0) {
+    listEl.innerHTML = "";
+    emptyEl.style.display = "block";
+    return;
+  }
+  emptyEl.style.display = "none";
+  listEl.innerHTML = docs.map(d => `
+    <li>
+      <div class="docInfo" onclick="openDoc('${d.id}')">
+        <div class="docTitle">${esc(d.title)}</div>
+        <div class="docDate">${esc(d.savedAt)}</div>
+      </div>
+      <button onclick="deleteDoc('${d.id}', event)">削除</button>
+    </li>
+  `).join("");
+}
+
+function clearForm() {
+  if (!confirm("入力内容をすべてクリアして新規作成しますか？（保存済みの手紙は消えません）")) return;
+  FIELD_IDS.forEach(id => document.getElementById(id).value = "");
+  document.getElementById('industrySelect').value = "";
+  document.getElementById('sceneSelect').value = "";
+  render();
 }
 
 function render() {
@@ -223,6 +421,8 @@ function render() {
 document.querySelectorAll('input, textarea').forEach(el => {
   el.addEventListener('input', render);
 });
+initTemplateSelectors();
+renderDocList();
 render();
 </script>
 
