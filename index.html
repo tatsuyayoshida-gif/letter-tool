@@ -80,6 +80,8 @@
   #printBtn:hover { background: #1d4ed8; }
   #saveBtn { background: #16a34a; color: #fff; }
   #saveBtn:hover { background: #15803d; }
+  #wordBtn { background: #7c3aed; color: #fff; }
+  #wordBtn:hover { background: #6d28d9; }
   #clearBtn { background: #e5e7eb; color: #333; }
   #clearBtn:hover { background: #d1d5db; }
   #docList {
@@ -116,6 +118,7 @@
     padding: 24px;
     display: flex;
     justify-content: center;
+    align-items: flex-start;
   }
   .paper {
     background: #fff;
@@ -212,6 +215,7 @@
 
   <button id="saveBtn" class="btn" onclick="saveCurrentLetter()">この内容を保存する</button>
   <button id="printBtn" class="btn" onclick="window.print()">印刷する</button>
+  <button id="wordBtn" class="btn" onclick="exportWord()">Wordで出力する（郵送情報つき）</button>
   <button id="clearBtn" class="btn" onclick="clearForm()">新規作成（フォームをクリア）</button>
 </div>
 
@@ -219,6 +223,7 @@
   <div class="paper" id="paper"></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
 <script>
 function esc(s) {
   return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -361,6 +366,136 @@ function renderDocList() {
       <button onclick="deleteDoc('${d.id}', event)">削除</button>
     </li>
   `).join("");
+}
+
+// ---- Wordドキュメント出力（郵送情報つき・本物の.docx） ----
+async function exportWord() {
+  const v = id => document.getElementById(id).value;
+  if (typeof docx === 'undefined') {
+    alert('Word出力に必要なライブラリの読み込みに失敗しました。インターネット接続を確認して、ページを再読み込みしてください。');
+    return;
+  }
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+    AlignmentType, WidthType, BorderStyle, ShadingType, HeadingLevel } = docx;
+
+  const FONT = "游明朝";
+  const SIZE = 21; // 10.5pt = 21 half-points
+
+  function linesToRuns(text, opts = {}) {
+    const lines = (text || "").split("\n").map(s => s.trim()).filter(Boolean);
+    const runs = [];
+    lines.forEach((line, i) => {
+      if (i > 0) runs.push(new TextRun({ text: "", break: 1 }));
+      runs.push(new TextRun({ text: line, font: FONT, size: SIZE, bold: !!opts.bold }));
+    });
+    return runs;
+  }
+
+  function para(text, opts = {}) {
+    return new Paragraph({
+      alignment: opts.align || AlignmentType.LEFT,
+      spacing: { after: opts.after ?? 200, line: 360 },
+      pageBreakBefore: !!opts.pageBreakBefore,
+      children: linesToRuns(text, opts),
+    });
+  }
+
+  function heading(text, pageBreakBefore = false) {
+    return new Paragraph({
+      spacing: { after: 200 },
+      pageBreakBefore,
+      border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: "333333" } },
+      children: [new TextRun({ text, font: FONT, size: 26, bold: true })],
+    });
+  }
+
+  const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: "999999" };
+  const borders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder };
+
+  function labelCell(text) {
+    return new TableCell({
+      width: { size: 20, type: WidthType.PERCENTAGE },
+      shading: { type: ShadingType.CLEAR, fill: "F0F0F0" },
+      borders,
+      children: [new Paragraph({ children: [new TextRun({ text, font: FONT, size: 20, bold: true })] })],
+    });
+  }
+  function valueCell(text) {
+    return new TableCell({
+      width: { size: 80, type: WidthType.PERCENTAGE },
+      borders,
+      children: [new Paragraph({ children: linesToRuns(text) })],
+    });
+  }
+  function headCell(text) {
+    return new TableCell({
+      columnSpan: 2,
+      shading: { type: ShadingType.CLEAR, fill: "E5E7EB" },
+      borders,
+      children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text, font: FONT, size: 20, bold: true })] })],
+    });
+  }
+
+  function infoTable(headText, rows) {
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({ children: [headCell(headText)] }),
+        ...rows.map(([label, value]) => new TableRow({ children: [labelCell(label), valueCell(value)] })),
+      ],
+    });
+  }
+
+  const toName = `${v('toCompany')}\n${v('toDept')}　御中`;
+  const fromName = `${v('fromCompany')}\n${v('fromRep')}`;
+
+  const doc = new Document({
+    sections: [{
+      children: [
+        heading("■ 郵送情報（この情報をもとに封筒をご記入ください）"),
+        infoTable("宛先（封筒 表面）", [
+          ["郵便番号", `〒${v('toZip')}`],
+          ["住所", v('toAddr')],
+          ["宛名", toName],
+        ]),
+        para("", { after: 200 }),
+        infoTable("差出人（封筒 裏面）", [
+          ["郵便番号", `〒${v('fromZip')}`],
+          ["住所", v('fromAddr')],
+          ["氏名", fromName],
+          ["電話番号", v('fromTel')],
+        ]),
+        para(`※本件担当：${v('staffName')}／Email：${v('staffMail')}`, { after: 200 }),
+
+        heading("■ 手紙本文（このまま便箋に転記してください）", true),
+        para(v('dateLine'), { align: AlignmentType.RIGHT }),
+        para(toName, {}),
+        para(fromName, { align: AlignmentType.RIGHT }),
+        para("生成AI検索における貴社製品の見え方に関する無料診断のご案内", { align: AlignmentType.CENTER, bold: true, after: 300 }),
+        para("拝啓　時下ますますご清栄のこととお慶び申し上げます。"),
+        para(`突然のお手紙にて失礼いたします。私ども${v('fromCompany')}は、AI検索最適化(AEO)支援を専門としております。${v('hookLine')}`),
+        para(v('industryLine')),
+        para("弊社では、こうした変化に対応するため、貴社の製品・ブランドが主要な生成AI(ChatGPT、Google AI Mode等)でどのように検索・回答されているか、競合他社との比較も含めて可視化する「AI検索無料診断」を提供しております。"),
+        para("診断では、以下のような点を無料でお調べし、レポートとしてお届けいたします。"),
+        para("・貴社の製品名・技術名で生成AIに質問した際、どのような回答が生成されるか\n・競合他社と比較してAIにどう紹介されているか(強み・弱みの見え方)\n・現時点でのAI検索における改善余地"),
+        para(`診断は無料・ご契約義務なしでご利用いただけます。ご興味をお持ちいただけましたら、下記担当までお気軽にご連絡くださいませ。${v('toDept')}様の製品・技術が、AI検索の場でも正しく・魅力的に伝わっているか、ぜひ一度ご確認いただければ幸いです。`),
+        para("末筆ながら、貴社の益々のご発展を心よりお祈り申し上げます。"),
+        para("敬具", { align: AlignmentType.RIGHT }),
+        para(`${v('fromCompany')}\n${v('fromRep')}\n〒${v('fromZip')}　${v('fromAddr')}\nTEL：${v('fromTel')}\n本件担当：${v('staffName')}\nEmail：${v('staffMail')}`, { align: AlignmentType.RIGHT }),
+      ],
+    }],
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const fname = `${v('toCompany')}_${v('toDept')}_ご案内状`.replace(/[\\/:*?"<>|]/g, '');
+  a.href = url;
+  a.download = `${fname}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function clearForm() {
