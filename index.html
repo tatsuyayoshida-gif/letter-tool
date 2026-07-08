@@ -156,10 +156,30 @@
   .bullets { margin: 6px 0 16px; }
   .bullets div { margin-bottom: 3px; }
 
+  .paper-stack { display: flex; flex-direction: column; gap: 24px; }
+
+  .card-paper {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    border: 2px dashed #999;
+  }
+  .card-paper .card-eyebrow { font-size: 11pt; color: #555; margin-bottom: 8px; }
+  .card-paper .card-title { font-size: 18pt; font-weight: bold; margin-bottom: 24px; }
+  .card-paper img.qr { width: 45mm; height: 45mm; margin-bottom: 20px; }
+  .card-paper .card-caption { font-size: 11pt; color: #333; margin-bottom: 6px; }
+  .card-paper .card-url { font-size: 9pt; color: #888; word-break: break-all; max-width: 140mm; }
+  .card-paper .card-note { font-size: 9pt; color: #aaa; margin-top: 28px; }
+
   @media print {
     #panel { display: none; }
     #stage { padding: 0; display: block; }
     .paper { box-shadow: none; width: auto; min-height: auto; margin: 0; }
+    .paper-stack { gap: 0; }
+    .card-paper { page-break-before: always; border: none; }
     @page { size: A4; margin: 0; }
   }
 </style>
@@ -230,6 +250,12 @@
   </fieldset>
 
   <fieldset>
+    <legend>商談予約（同封QRカード用）</legend>
+    <label>予約ページURL</label>
+    <input type="text" id="bookingUrl" value="https://app.spirinc.com/t/jAMKJ4qOcjOOUXi962v50/as/63ZsqBuUgj0yRksa_wQu0/confirm-guest">
+  </fieldset>
+
+  <fieldset>
     <legend>日付</legend>
     <input type="text" id="dateLine" value="2026年7月吉日">
   </fieldset>
@@ -241,11 +267,19 @@
 </div>
 
 <div id="stage">
-  <div class="paper" id="paper"></div>
+  <div class="paper-stack">
+    <div class="paper" id="paper"></div>
+    <div class="paper card-paper" id="qrCard"></div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script type="module">
+  import QRCode from "https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm";
+  window.QRCode = QRCode;
+  window.dispatchEvent(new Event('qrcode-ready'));
+</script>
 <script>
 function esc(s) {
   return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -312,6 +346,23 @@ function initTemplateSelectors() {
     }
   });
 }
+
+// ---- 予約用QRコード ----
+let qrGeneration = 0;
+async function updateQrImage() {
+  const img = document.getElementById('qrImg');
+  const url = document.getElementById('bookingUrl').value.trim();
+  if (!img || !url) return;
+  if (typeof QRCode === 'undefined') return; // モジュール読み込み待ち。qrcode-ready後に再描画される
+  const myGen = ++qrGeneration;
+  try {
+    const dataUrl = await QRCode.toDataURL(url, { width: 300, margin: 1 });
+    if (myGen === qrGeneration) img.src = dataUrl; // 連続入力時に古い結果で上書きしない
+  } catch (e) {
+    console.error('QR生成失敗', e);
+  }
+}
+window.addEventListener('qrcode-ready', () => render());
 
 // ---- 診断レポートPDFから導入文を自動作成 ----
 if (typeof pdfjsLib !== 'undefined') {
@@ -509,7 +560,21 @@ async function exportWord() {
     return;
   }
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-    AlignmentType, WidthType, BorderStyle, ShadingType, HeadingLevel } = docx;
+    AlignmentType, WidthType, BorderStyle, ShadingType, HeadingLevel, ImageRun } = docx;
+
+  let qrImageBytes = null;
+  const bookingUrl = v('bookingUrl').trim();
+  if (bookingUrl && typeof QRCode !== 'undefined') {
+    try {
+      const dataUrl = await QRCode.toDataURL(bookingUrl, { width: 500, margin: 1 });
+      const base64 = dataUrl.split(',')[1];
+      const binary = atob(base64);
+      qrImageBytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) qrImageBytes[i] = binary.charCodeAt(i);
+    } catch (e) {
+      console.error('QR生成失敗', e);
+    }
+  }
 
   const FONT = "游明朝";
   const SIZE = 21; // 10.5pt = 21 half-points
@@ -611,10 +676,21 @@ async function exportWord() {
         para("弊社では、こうした変化に対応するため、貴社の製品・ブランドが主要な生成AI(ChatGPT、Google AI Mode等)でどのように検索・回答されているか、競合他社との比較も含めて可視化する「AI検索無料診断」を提供しております。"),
         para("診断では、以下のような点を無料でお調べし、レポートとしてお届けいたします。"),
         para("・貴社の製品名・技術名で生成AIに質問した際、どのような回答が生成されるか\n・競合他社と比較してAIにどう紹介されているか(強み・弱みの見え方)\n・現時点でのAI検索における改善余地"),
-        para(`診断は無料・ご契約義務なしでご利用いただけます。ご興味をお持ちいただけましたら、下記担当までお気軽にご連絡くださいませ。${v('toDept')}様の製品・技術が、AI検索の場でも正しく・魅力的に伝わっているか、ぜひ一度ご確認いただければ幸いです。`),
+        para(`診断は無料・ご契約義務なしでご利用いただけます。ご興味をお持ちいただけましたら、同封のQRコードより30秒でオンライン相談(無料)をご予約いただけます。${v('toDept')}様の製品・技術が、AI検索の場でも正しく・魅力的に伝わっているか、ぜひ一度ご確認いただければ幸いです。`),
         para("末筆ながら、貴社の益々のご発展を心よりお祈り申し上げます。"),
         para("敬具", { align: AlignmentType.RIGHT }),
         para(`${v('fromCompany')}\n${v('fromRep')}\n〒${v('fromZip')}　${v('fromAddr')}\nTEL：${v('fromTel')}\n本件担当：${v('staffName')}\nEmail：${v('staffMail')}`, { align: AlignmentType.RIGHT }),
+
+        heading("■ 同封カード（切り取って手紙と一緒に封筒へ入れてください）", true),
+        para(`${v('toCompany')}様 専用`, { align: AlignmentType.CENTER, after: 100 }),
+        para("AI検索 無料オンライン相談\nご予約はこちら", { align: AlignmentType.CENTER, bold: true, after: 300 }),
+        ...(qrImageBytes ? [new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 300 },
+          children: [new ImageRun({ type: "png", data: qrImageBytes, transformation: { width: 220, height: 220 } })],
+        })] : [para("（QRコードの生成に失敗しました。手動で予約URLをご案内ください）", { align: AlignmentType.CENTER, after: 200 })]),
+        para("スマートフォンのカメラでQRコードを読み取ってください", { align: AlignmentType.CENTER, after: 100 }),
+        para(bookingUrl, { align: AlignmentType.CENTER }),
       ],
     }],
   });
@@ -669,7 +745,7 @@ function render() {
       <div>・現時点でのAI検索における改善余地</div>
     </div>
 
-    <div class="body-p">診断は無料・ご契約義務なしでご利用いただけます。ご興味をお持ちいただけましたら、下記担当までお気軽にご連絡くださいませ。${esc(v('toDept'))}様の製品・技術が、AI検索の場でも正しく・魅力的に伝わっているか、ぜひ一度ご確認いただければ幸いです。</div>
+    <div class="body-p">診断は無料・ご契約義務なしでご利用いただけます。ご興味をお持ちいただけましたら、同封のQRコードより30秒でオンライン相談(無料)をご予約いただけます。${esc(v('toDept'))}様の製品・技術が、AI検索の場でも正しく・魅力的に伝わっているか、ぜひ一度ご確認いただければ幸いです。</div>
 
     <div class="mb-l">末筆ながら、貴社の益々のご発展を心よりお祈り申し上げます。</div>
 
@@ -684,6 +760,17 @@ function render() {
   `;
 
   document.getElementById('paper').innerHTML = html;
+
+  const bookingUrl = v('bookingUrl');
+  document.getElementById('qrCard').innerHTML = `
+    <div class="card-eyebrow">${esc(v('toCompany'))}様 専用</div>
+    <div class="card-title">AI検索 無料オンライン相談<br>ご予約はこちら</div>
+    <img class="qr" id="qrImg" src="" alt="QRコード">
+    <div class="card-caption">スマートフォンのカメラでQRコードを読み取ってください</div>
+    <div class="card-url">${esc(bookingUrl)}</div>
+    <div class="card-note">${esc(v('fromCompany'))}</div>
+  `;
+  updateQrImage();
 }
 
 document.querySelectorAll('input, textarea').forEach(el => {
