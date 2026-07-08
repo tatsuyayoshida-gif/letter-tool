@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>AI検索無料診断 手紙作成ツール</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: #f2f2f2;
+    margin: 0;
+    display: flex;
+    height: 100vh;
+  }
+  #panel {
+    width: 380px;
+    flex-shrink: 0;
+    background: #fff;
+    padding: 20px;
+    overflow-y: auto;
+    border-right: 1px solid #ddd;
+  }
+  #panel h1 {
+    font-size: 16px;
+    margin: 0 0 4px;
+  }
+  #panel p.desc {
+    font-size: 12px;
+    color: #666;
+    margin: 0 0 16px;
+  }
+  fieldset {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    padding: 10px 12px 12px;
+  }
+  legend {
+    font-size: 12px;
+    font-weight: bold;
+    color: #444;
+    padding: 0 4px;
+  }
+  label {
+    display: block;
+    font-size: 11px;
+    color: #555;
+    margin-top: 8px;
+  }
+  input[type=text], textarea {
+    width: 100%;
+    font-size: 13px;
+    padding: 5px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin-top: 3px;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; }
+  #printBtn {
+    width: 100%;
+    padding: 10px;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+  #printBtn:hover { background: #1d4ed8; }
+  #stage {
+    flex: 1;
+    overflow: auto;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+  }
+  .paper {
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 30mm 25mm 25mm;
+    box-shadow: 0 0 8px rgba(0,0,0,0.2);
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: 10.5pt;
+    line-height: 1.9;
+    color: #111;
+  }
+  .right { text-align: right; }
+  .center { text-align: center; }
+  .bold { font-weight: bold; }
+  .mb-s { margin-bottom: 4px; }
+  .mb-m { margin-bottom: 20px; }
+  .mb-l { margin-bottom: 32px; }
+  .title { font-size: 12.5pt; margin-bottom: 24px; }
+  .body-p { margin-bottom: 14px; text-align: justify; }
+  .bullets { margin: 6px 0 16px; }
+  .bullets div { margin-bottom: 3px; }
+
+  @media print {
+    #panel { display: none; }
+    #stage { padding: 0; display: block; }
+    .paper { box-shadow: none; width: auto; min-height: auto; margin: 0; }
+    @page { size: A4; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <h1>AI検索無料診断 手紙作成ツール</h1>
+  <p class="desc">左のフォームに入力すると、右側にビジネス文書の体裁で手紙のプレビューが表示されます。「印刷する」を押すとブラウザの印刷画面が開くので、そのままA4で印刷できます。</p>
+
+  <fieldset>
+    <legend>宛先</legend>
+    <label>宛先会社名</label>
+    <input type="text" id="toCompany" value="株式会社日本製鋼所">
+    <label>宛先部署（「御中」は自動で付きます）</label>
+    <input type="text" id="toDept" value="新事業推進本部　フォトメックス事業室">
+    <label>郵便番号</label>
+    <input type="text" id="toZip" value="141-8626">
+    <label>住所（改行OK）</label>
+    <textarea id="toAddr" rows="3">東京都品川区大崎一丁目11番1号
+ゲートシティ大崎ウエストタワー</textarea>
+  </fieldset>
+
+  <fieldset>
+    <legend>本文フック（電話の内容に合わせて調整）</legend>
+    <label>先日の電話で対応した担当者・部署への一言</label>
+    <textarea id="hookLine" rows="2">先日、弊社担当の吉田より貴社フォトメックス事業室様へお電話にてご連絡させていただきましたところ、資料をご覧いただけるとのことでしたので、改めて書中にてご案内申し上げます。</textarea>
+    <label>業界・製品を絡めた導入文（AI検索の重要性）</label>
+    <textarea id="industryLine" rows="4">近年、ChatGPTをはじめとする生成AIが情報収集の入り口として急速に普及し、お取引先様や新規のお客様が「レーザー加工機」「光学部品」といった専門分野の製品情報を調べる際にも、AI検索を経由するケースが増えております。従来のGoogle検索とは異なり、AIは複数の情報源を要約・比較したうえで回答するため、貴社製品が"AIにどう認識され、どう説明されているか"が、そのまま商談機会の増減に直結する時代になりつつあります。</textarea>
+  </fieldset>
+
+  <fieldset>
+    <legend>差出人（通常は変更不要）</legend>
+    <label>会社名</label>
+    <input type="text" id="fromCompany" value="secondz digital株式会社">
+    <label>代表者</label>
+    <input type="text" id="fromRep" value="代表取締役　板井 龍也">
+    <label>郵便番号</label>
+    <input type="text" id="fromZip" value="220-0012">
+    <label>住所（改行OK）</label>
+    <textarea id="fromAddr" rows="2">神奈川県横浜市西区みなとみらい3-7-1
+オーシャンゲートみなとみらい8F</textarea>
+    <label>電話番号</label>
+    <input type="text" id="fromTel" value="050-5783-4933">
+    <label>本件担当者名</label>
+    <input type="text" id="staffName" value="吉田 達也">
+    <label>担当者メールアドレス</label>
+    <input type="text" id="staffMail" value="tatsuya.yoshida@secondz.digital">
+  </fieldset>
+
+  <fieldset>
+    <legend>日付</legend>
+    <input type="text" id="dateLine" value="2026年7月吉日">
+  </fieldset>
+
+  <button id="printBtn" onclick="window.print()">印刷する</button>
+</div>
+
+<div id="stage">
+  <div class="paper" id="paper"></div>
+</div>
+
+<script>
+function esc(s) {
+  return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+function nl2br(s) {
+  return esc(s).split("\n").map(x => x.trim()).filter(Boolean).join("<br>");
+}
+
+function render() {
+  const v = id => document.getElementById(id).value;
+
+  const html = `
+    <div class="right mb-m">${esc(v('dateLine'))}</div>
+
+    <div class="mb-s">${esc(v('toCompany'))}</div>
+    <div class="mb-l">${esc(v('toDept'))}　御中</div>
+
+    <div class="right mb-s">${esc(v('fromCompany'))}</div>
+    <div class="right mb-l">${esc(v('fromRep'))}</div>
+
+    <div class="center bold title">生成AI検索における貴社製品の見え方に関する無料診断のご案内</div>
+
+    <div class="body-p">拝啓　時下ますますご清栄のこととお慶び申し上げます。</div>
+
+    <div class="body-p">突然のお手紙にて失礼いたします。私ども${esc(v('fromCompany'))}は、AI検索最適化(AEO)支援を専門としております。${nl2br(v('hookLine'))}</div>
+
+    <div class="body-p">${nl2br(v('industryLine'))}</div>
+
+    <div class="body-p">弊社では、こうした変化に対応するため、貴社の製品・ブランドが主要な生成AI(ChatGPT、Google AI Mode等)でどのように検索・回答されているか、競合他社との比較も含めて可視化する「AI検索無料診断」を提供しております。</div>
+
+    <div class="body-p">診断では、以下のような点を無料でお調べし、レポートとしてお届けいたします。</div>
+
+    <div class="bullets">
+      <div>・貴社の製品名・技術名で生成AIに質問した際、どのような回答が生成されるか</div>
+      <div>・競合他社と比較してAIにどう紹介されているか(強み・弱みの見え方)</div>
+      <div>・現時点でのAI検索における改善余地</div>
+    </div>
+
+    <div class="body-p">診断は無料・ご契約義務なしでご利用いただけます。ご興味をお持ちいただけましたら、下記担当までお気軽にご連絡くださいませ。${esc(v('toDept'))}様の製品・技術が、AI検索の場でも正しく・魅力的に伝わっているか、ぜひ一度ご確認いただければ幸いです。</div>
+
+    <div class="mb-l">末筆ながら、貴社の益々のご発展を心よりお祈り申し上げます。</div>
+
+    <div class="right mb-l">敬具</div>
+
+    <div class="right">${esc(v('fromCompany'))}</div>
+    <div class="right">${esc(v('fromRep'))}</div>
+    <div class="right">〒${esc(v('fromZip'))}　${nl2br(v('fromAddr'))}</div>
+    <div class="right mb-s">TEL：${esc(v('fromTel'))}</div>
+    <div class="right">本件担当：${esc(v('staffName'))}</div>
+    <div class="right">Email：${esc(v('staffMail'))}</div>
+  `;
+
+  document.getElementById('paper').innerHTML = html;
+}
+
+document.querySelectorAll('input, textarea').forEach(el => {
+  el.addEventListener('input', render);
+});
+render();
+</script>
+
+</body>
+</html>
